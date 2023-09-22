@@ -1,0 +1,132 @@
+clear 
+clf 
+clc
+%% Initial Bricks Placement
+hold on
+axis equal
+workspace = [-4 4 -4 4 -0 4];
+axis on
+
+b_1 = PlaceObject('HalfSizedRedGreenBrick.ply',[-0.4+0.05,0.1,0]);
+verts = [get(b_1,'Vertices'), ones(size(get(b_1,'Vertices'),1),1)] * trotz(pi/2);
+set(b_1,'Vertices',verts(:,1:3))
+
+b_2 = PlaceObject('HalfSizedRedGreenBrick.ply',[-0.4+0.05,0.4,0]);
+verts = [get(b_2,'Vertices'), ones(size(get(b_2,'Vertices'),1),1)] * trotz(pi/2);
+set(b_2,'Vertices',verts(:,1:3))
+
+b_3 = PlaceObject('HalfSizedRedGreenBrick.ply',[-0.4,0.7,0]);
+verts = [get(b_3,'Vertices'), ones(size(get(b_3,'Vertices'),1),1)] * trotz(pi/2);
+set(b_3,'Vertices',verts(:,1:3))
+
+b_4 = PlaceObject('HalfSizedRedGreenBrick.ply',[-0.4,-0.3,0]);
+verts = [get(b_4,'Vertices'), ones(size(get(b_4,'Vertices'),1),1)] * trotz(pi/2);
+set(b_4,'Vertices',verts(:,1:3))
+
+b_5 = PlaceObject('HalfSizedRedGreenBrick.ply',[0.7,0.1,0]);
+verts = [get(b_5,'Vertices'), ones(size(get(b_5,'Vertices'),1),1)] * trotz(pi/2);
+set(b_5,'Vertices',verts(:,1:3))
+
+b_6 = PlaceObject('HalfSizedRedGreenBrick.ply',[0.7,0.4,0]);
+verts = [get(b_6,'Vertices'), ones(size(get(b_6,'Vertices'),1),1)] * trotz(pi/2);
+set(b_6,'Vertices',verts(:,1:3))
+
+b_7 = PlaceObject('HalfSizedRedGreenBrick.ply',[0.7,0.7,0]);
+verts = [get(b_7,'Vertices'), ones(size(get(b_7,'Vertices'),1),1)] * trotz(pi/2);
+set(b_7,'Vertices',verts(:,1:3))
+
+b_8 = PlaceObject('HalfSizedRedGreenBrick.ply',[0.7,-0.3,0]);
+verts = [get(b_8,'Vertices'), ones(size(get(b_8,'Vertices'),1),1)] * trotz(pi/2);
+set(b_8,'Vertices',verts(:,1:3))
+
+b_9 = PlaceObject('HalfSizedRedGreenBrick.ply',[0.1,-0.7,0]);
+verts = [get(b_9,'Vertices'), ones(size(get(b_9,'Vertices'),1),1)] * trotz(pi/2);
+set(b_9,'Vertices',verts(:,1:3))
+
+display(['Generate brick Complete']);
+
+%% Environment - safety
+hold on
+axis equal
+axis on
+PlaceObject('EnvironmentFin.ply',[-1,0.7,-1.5]); % Load in environment
+
+% Load in Concrete Floor
+surf([-3,-3;3,3] ...
+,[-3,3;-3,3] ...
+,[-1.5,-1.5;-1.5,-1.5] ...
+,'CData',imread('concrete.jpg') ...
+,'FaceColor','texturemap');
+
+display(['Generate Environment Complete']);
+%% Robot UR3 moving
+baseStart = [1 0 0 0.5; 0 1 0 -0.1; 0 0 1 0; 0 0 0 1]; % Set Base Location;
+steps = 100;
+
+robot = LinearUR3(baseStart);    % Load model
+q = zeros(1,7);
+robot.model.teach(q);
+
+T1 = robot.model.fkineUTS(q) %calculates the forward kinematics of the robot's end-effector 
+T2 = transl(-0.1,0.5, 0);
+
+q1 = robot.model.ikcon(T1)    % Use ikcon to solve for joint positions to get from T1 to T2
+q2 = robot.model.ikcon(T2)
+qMatrix = jtraj(q1,q2,steps)      % generates the q values for the trajectory
+
+for i = 1:100
+    robot.model.animate(qMatrix(i,:));
+    drawnow();
+end
+% Display a message to indicate that the DH parameters and base transformation are complete
+disp('Load DH Parameters and Base Transformation for Linear UR3 Complete');
+
+%% Point Cloud
+stepRads = deg2rad(50);
+qlim = robot.model.qlim; % join limits of robot
+linearsteps = abs(qlim(1,1))/((360*2)/rad2deg(stepRads)); % change rad to linear steps
+
+
+% Assign the storage required for the pointCloud
+pointCloudeSize = prod(floor((qlim(1:7,2)-qlim(1:7,1))/stepRads + 1));
+pointCloud = zeros(pointCloudeSize,3);
+counter = 1;
+tic
+
+% Iterate through 6 for loops to store position of the end effector, q7 doesn't affect workspace volume
+for q1 = qlim(1,1):linearsteps:qlim(1,2)
+    for q2 = qlim(2,1):stepRads:qlim(2,2)
+        for q3 = qlim(3,1):stepRads:qlim(3,2)
+            for q4 = qlim(4,1):stepRads:qlim(4,2)
+                for q5 = qlim(5,1):stepRads:qlim(5,2)
+                    for q6 = qlim(6,1):stepRads:qlim(6,2)
+                        q7=0;
+                        q = [q1,q2,q3,q4,q5,q6,q7];
+                        tr = robot.model.fkineUTS(q); %using joint positions, find end effector transform and store the x,y,z location from the transformation matrix
+                        pointCloud(counter,:) = tr(1:3,4)'; % the apostrophe is to transpose the matrix in the form the point cloud is expecting
+                        counter = counter + 1;
+                        if mod(counter/pointCloudeSize * 100,1) == 0 %to show messages, it outputs every 25s to give time indication of how long its gone for
+                            display(['After ',num2str(toc),' seconds, completed ',num2str(counter/pointCloudeSize * 100),'% of poses']);
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+% Create a 3D model showing where the end effector can be over all these samples.
+plot3(pointCloud(:,1),pointCloud(:,2),pointCloud(:,3),'r.');
+display(['Calculate and Display Point Cloud Complete']);
+
+%% Volume 
+% Calculate the Convex Hull of the Point Cloud
+k = convhull(pointCloud(:,1), pointCloud(:,2), pointCloud(:,3)); 
+% returns a set of indices (k) that represent the vertices of the convex hull. 
+% These vertices define the 3D shape.
+
+% Calculate the volume of the convex hull using the convexHullVertices
+volume = convhulln(pointCloud(k, :)); 
+
+% Display the volume
+fprintf('Volume of the Convex Hull/Point Cloud: %.4f\n', volume);
